@@ -1,0 +1,119 @@
+name: Deploy to Google Cloud
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+    inputs:
+      deploy_database:
+        description: 'Deploy database'
+        required: false
+        default: 'true'
+        type: boolean
+      deploy_backend:
+        description: 'Deploy backend'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ secrets.GCP_REGION }}
+  DATABASE_INSTANCE_NAME: gesturepro-db
+  BACKEND_SERVICE_NAME: gesturepro-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker to use gcloud
+        run: gcloud auth configure-docker
+
+      - name: Deploy Database
+        if: github.event.inputs.deploy_database != 'false'
+        run: |
+          echo "Deploying Cloud SQL database..."
+          
+          # Check if database instance exists
+          if ! gcloud sql instances describe $DATABASE_INSTANCE_NAME --project=$GCP_PROJECT_ID 2>/dev/null; then
+            echo "Creating new Cloud SQL instance..."
+            gcloud sql instances create $DATABASE_INSTANCE_NAME \
+              --database-version=POSTGRES_14 \
+              --tier=db-f1-micro \
+              --region=$GCP_REGION \
+              --project=$GCP_PROJECT_ID
+            
+            # Create database
+            gcloud sql databases create gesturepro \
+              --instance=$DATABASE_INSTANCE_NAME \
+              --project=$GCP_PROJECT_ID
+            
+            # Create database user
+            gcloud sql users create appuser \
+              --instance=$DATABASE_INSTANCE_NAME \
+              --password=${{ secrets.DB_PASSWORD }} \
+              --project=$GCP_PROJECT_ID
+          else
+            echo "Database instance already exists, skipping creation..."
+          fi
+
+      - name: Build and Push Backend Docker Image
+        if: github.event.inputs.deploy_backend != 'false'
+        run: |
+          echo "Building Docker image for the backend..."
+          docker build -t gcr.io/$GCP_PROJECT_ID/backend:latest -f .github/docker/Dockerfile.prod .
+          
+          echo "Pushing Docker image to Google Container Registry..."
+          docker push gcr.io/$GCP_PROJECT_ID/backend:latest
+
+      - name: Deploy Backend to Cloud Run
+        if: github.event.inputs.deploy_backend != 'false'
+        run: |
+          echo "Deploying the backend to Google Cloud Run..."
+          gcloud run deploy $BACKEND_SERVICE_NAME \
+            --image gcr.io/$GCP_PROJECT_ID/backend:latest \
+            --platform managed \
+            --region $GCP_REGION \
+            --allow-unauthenticated \
+            --project $GCP_PROJECT_ID \
+            --set-env-vars="DATABASE_URL=postgresql://appuser:${{ secrets.DB_PASSWORD }}@/gesturepro?host=/cloudsql/$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME" \
+            --add-cloudsql-instances=$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME \
+            --memory=512Mi \
+            --cpu=1 \
+            --max-instances=10
+
+      # - name: Run Database Migrations
+      #   if: github.event.inputs.deploy_database != 'false'
+      #   run: |
+      #     echo "Running database migrations..."
+      #     # Run migrations via Cloud Run job
+      #     gcloud run jobs create migrate-job \
+      #       --image gcr.io/$GCP_PROJECT_ID/backend:latest \
+      #       --region $GCP_REGION \
+      #       --project $GCP_PROJECT_ID \
+      #       --set-env-vars="DATABASE_URL=postgresql://appuser:${{ secrets.DB_PASSWORD }}@/gesturepro?host=/cloudsql/$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME" \
+      #       --add-cloudsql-instances=$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME \
+      #       --command="python" \
+      #       --args="manage.py,migrate"
+          
+      #     echo "Migrations completed successfully!"
+
+      - name: Output Deployment URLs
+        run: |
+          echo "Deployment completed successfully!"
+          echo "Backend URL: https://$BACKEND_SERVICE_NAME-$(gcloud run services describe $BACKEND_SERVICE_NAME --region=$GCP_REGION --format='value(status.url)' --project=$GCP_PROJECT_ID | cut -d'/' -f3)"
+          echo "Database Instance: $DATABASE_INSTANCE_NAME"
