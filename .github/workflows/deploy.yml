@@ -106,7 +106,7 @@ jobs:
             --allow-unauthenticated \
             --project $GCP_PROJECT_ID \
             --port=8080 \
-            --set-env-vars="CLOUD_SQL_CONNECTION_NAME=$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME,DB_USER=appuser,DB_PASSWORD=${{ secrets.DB_PASSWORD }},DB_NAME=gesturepro,PORT=8080" \
+            --set-env-vars="CLOUD_SQL_CONNECTION_NAME=$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME,DB_USER=appuser,DB_PASSWORD=${{ secrets.DB_PASSWORD }},DB_NAME=gesturepro" \
             --add-cloudsql-instances=$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME \
             --memory=2Gi \
             --cpu=1 \
