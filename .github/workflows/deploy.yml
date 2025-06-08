@@ -105,11 +105,11 @@ jobs:
             --region $GCP_REGION \
             --allow-unauthenticated \
             --project $GCP_PROJECT_ID \
-            --set-env-vars="DATABASE_URL=postgresql://appuser:${{ secrets.DB_PASSWORD }}@/gesturepro?host=/cloudsql/$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME" \
+            --set-env-vars="CLOUD_SQL_CONNECTION_NAME=$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME,DB_USER=appuser,DB_PASSWORD=${{ secrets.DB_PASSWORD }},DB_NAME=gesturepro" \
             --add-cloudsql-instances=$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME \
-            --memory=512Mi \
+            --memory=2Gi \
             --cpu=1 \
-            --max-instances=10
+            --max-instances=3
 
       - name: Output Deployment URLs
         run: |
