@@ -23,6 +23,8 @@ env:
   GCP_REGION: ${{ secrets.GCP_REGION }}
   DATABASE_INSTANCE_NAME: gesturepro-db
   BACKEND_SERVICE_NAME: gesturepro-backend
+  ARTIFACT_REGISTRY_REPO: gesturepro-repo
+  IMAGE_NAME: gesturepro-api
 
 jobs:
   deploy:
@@ -40,8 +42,21 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker to use gcloud
-        run: gcloud auth configure-docker
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker $GCP_REGION-docker.pkg.dev
+
+      - name: Create Artifact Registry Repository
+        run: |
+          # Create Artifact Registry repository if it doesn't exist
+          if ! gcloud artifacts repositories describe $ARTIFACT_REGISTRY_REPO --location=$GCP_REGION --project=$GCP_PROJECT_ID 2>/dev/null; then
+            echo "Creating Artifact Registry repository..."
+            gcloud artifacts repositories create $ARTIFACT_REGISTRY_REPO \
+              --repository-format=docker \
+              --location=$GCP_REGION \
+              --project=$GCP_PROJECT_ID
+          else
+            echo "Artifact Registry repository already exists..."
+          fi
 
       - name: Deploy Database
         if: github.event.inputs.deploy_database != 'false'
@@ -75,17 +90,17 @@ jobs:
         if: github.event.inputs.deploy_backend != 'false'
         run: |
           echo "Building Docker image for the backend..."
-          docker build -t gcr.io/$GCP_PROJECT_ID/backend:latest -f .github/docker/Dockerfile.prod .
+          docker build -t $GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/$ARTIFACT_REGISTRY_REPO/$IMAGE_NAME:latest -f .github/docker/Dockerfile.prod .
           
-          echo "Pushing Docker image to Google Container Registry..."
-          docker push gcr.io/$GCP_PROJECT_ID/backend:latest
+          echo "Pushing Docker image to Artifact Registry..."
+          docker push $GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/$ARTIFACT_REGISTRY_REPO/$IMAGE_NAME:latest
 
       - name: Deploy Backend to Cloud Run
         if: github.event.inputs.deploy_backend != 'false'
         run: |
           echo "Deploying the backend to Google Cloud Run..."
           gcloud run deploy $BACKEND_SERVICE_NAME \
-            --image gcr.io/$GCP_PROJECT_ID/backend:latest \
+            --image $GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/$ARTIFACT_REGISTRY_REPO/$IMAGE_NAME:latest \
             --platform managed \
             --region $GCP_REGION \
             --allow-unauthenticated \
@@ -96,24 +111,9 @@ jobs:
             --cpu=1 \
             --max-instances=10
 
-      # - name: Run Database Migrations
-      #   if: github.event.inputs.deploy_database != 'false'
-      #   run: |
-      #     echo "Running database migrations..."
-      #     # Run migrations via Cloud Run job
-      #     gcloud run jobs create migrate-job \
-      #       --image gcr.io/$GCP_PROJECT_ID/backend:latest \
-      #       --region $GCP_REGION \
-      #       --project $GCP_PROJECT_ID \
-      #       --set-env-vars="DATABASE_URL=postgresql://appuser:${{ secrets.DB_PASSWORD }}@/gesturepro?host=/cloudsql/$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME" \
-      #       --add-cloudsql-instances=$GCP_PROJECT_ID:$GCP_REGION:$DATABASE_INSTANCE_NAME \
-      #       --command="python" \
-      #       --args="manage.py,migrate"
-          
-      #     echo "Migrations completed successfully!"
-
       - name: Output Deployment URLs
         run: |
           echo "Deployment completed successfully!"
-          echo "Backend URL: https://$BACKEND_SERVICE_NAME-$(gcloud run services describe $BACKEND_SERVICE_NAME --region=$GCP_REGION --format='value(status.url)' --project=$GCP_PROJECT_ID | cut -d'/' -f3)"
+          BACKEND_URL=$(gcloud run services describe $BACKEND_SERVICE_NAME --region=$GCP_REGION --format='value(status.url)' --project=$GCP_PROJECT_ID)
+          echo "Backend URL: $BACKEND_URL"
           echo "Database Instance: $DATABASE_INSTANCE_NAME"

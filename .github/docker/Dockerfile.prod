@@ -16,6 +16,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the application code
 COPY server/app/ ./app/
 
+# Copy ML models if they exist locally
+RUN mkdir -p ./ml/saved_models
+
 # Expose the application port
 EXPOSE 8000
 
