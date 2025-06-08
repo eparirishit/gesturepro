@@ -29,7 +29,7 @@ ENV QT_QPA_PLATFORM=offscreen
 ENV OPENCV_IO_ENABLE_JASPER=true
 
 # Set the working directory
-WORKDIR /app
+WORKDIR /server
 
 # Copy the requirements file
 COPY server/requirements.txt .
@@ -42,6 +42,8 @@ COPY server/app/ ./app/
 
 # Copy ML models if they exist locally
 RUN mkdir -p ./ml/saved_models
+
+ENV PYTHONPATH=/server
 
 # Expose the application port
 EXPOSE 8000
