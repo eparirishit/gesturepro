@@ -17,6 +17,9 @@ python-multipart==0.0.6
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
 
+# Google Cloud Storage
+google-cloud-storage>=2.10.0
+
 # Scientific computing
 pandas>=1.5.0
 matplotlib>=3.5.0

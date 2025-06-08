@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api import auth
 from .api.sign_detector import router as sign_detector_router
 from .services.model_service import model_service
+from .services.model_downloader import model_downloader
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,32 +56,30 @@ async def startup_event():
     """Initialize services on startup"""
     logger.info("🚀 Starting GesturePro API...")
     logger.info(f"PORT environment variable: {os.getenv('PORT', 'Not set')}")
-
+    
+    # Check if we're in cloud environment
+    is_cloud = os.getenv('CLOUD_SQL_CONNECTION_NAME') is not None
+    logger.info(f"Environment: {'Cloud' if is_cloud else 'Local'}")
+    
+    # Model loading with cloud support
     try:
-        from .services.model_service import model_service
-        
-        model_path = os.environ.get('YOLO_MODEL_PATH')
-        class_names_path = os.environ.get('CLASS_NAMES_PATH')
-        
-        if not model_path:
-            model_path = os.path.join("ml", "saved_models", "yolo", "yolo_best.pt")
-        
-        if not class_names_path:
-            class_names_path = os.path.join("ml", "saved_models", "yolo", "class_names.json")
-        
-        logger.info(f"Current working directory: {os.getcwd()}")
-        logger.info(f"Looking for model at: {model_path}")
-        logger.info(f"Model file exists: {os.path.exists(model_path)}")
-        
-        if os.path.exists(model_path) and os.path.exists(class_names_path):
-            logger.info("📦 Loading model...")
-            success = model_service.load_model(model_path, class_names_path)
-            if success:
-                logger.info("✅ Model loaded successfully!")
+        if is_cloud:
+            # Check GCS connection first
+            logger.info("Checking Google Cloud Storage connection...")
+            if model_downloader.check_gcs_connection():
+                logger.info("✅ GCS connection successful")
             else:
-                logger.error("❌ Failed to load model")
+                logger.warning("⚠️ GCS connection failed, API will start without ML capabilities")
+                return
+        
+        logger.info("📦 Loading model...")
+        success = model_service.load_model()
+        
+        if success:
+            logger.info("✅ Model loaded successfully!")
         else:
-            logger.warning("⚠️  Model files not found, API will start without ML capabilities")
+            logger.warning("⚠️ Failed to load model, API will start without ML capabilities")
+            
     except Exception as e:
         logger.error(f"Model service initialization failed: {e}")
 
@@ -92,6 +91,7 @@ async def root():
         "version": "1.0.0",
         "model_loaded": model_service.is_loaded,
         "model_type": "YOLOv8 PyTorch",
+        "environment": "cloud" if os.getenv('CLOUD_SQL_CONNECTION_NAME') else "local",
         "port": os.getenv('PORT', '8000')
     }
 
@@ -104,5 +104,6 @@ async def health_check():
         "model_loaded": model_service.is_loaded,
         "database": "connected",
         "model_info": model_info,
+        "environment": "cloud" if os.getenv('CLOUD_SQL_CONNECTION_NAME') else "local",
         "port": os.getenv('PORT', '8000')
     }

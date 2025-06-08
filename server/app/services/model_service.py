@@ -8,6 +8,7 @@ from typing import Union, Dict
 from ultralytics import YOLO
 from collections import deque
 from datetime import datetime
+from .model_downloader import model_downloader
 
 logger = logging.getLogger(__name__)
 
@@ -119,21 +120,17 @@ class ModelService:
         try:
             start_time = time.time()
             
-            if model_path is None:
-                model_path = os.environ.get('YOLO_MODEL_PATH')
-                if not model_path:
-                    model_path = os.path.abspath(os.path.join(
-                        os.path.dirname(__file__), 
-                        "..", "..", "ml", "saved_models", "yolo", "yolo_best.pt"
-                    ))
-        
-            if class_names_path is None:
-                class_names_path = os.environ.get('CLASS_NAMES_PATH')
-                if not class_names_path:
-                    class_names_path = os.path.abspath(os.path.join(
-                        os.path.dirname(__file__), 
-                        "..", "..", "ml", "saved_models", "yolo", "class_names.json"
-                    ))
+            # If paths not provided, get them from the downloader
+            if model_path is None or class_names_path is None:
+                logger.info("Getting model paths from model downloader...")
+                downloaded_model_path, downloaded_class_names_path = model_downloader.get_model_paths()
+                
+                if downloaded_model_path is None or downloaded_class_names_path is None:
+                    logger.error("Failed to get model paths")
+                    return False
+                
+                model_path = model_path or downloaded_model_path
+                class_names_path = class_names_path or downloaded_class_names_path
             
             if not os.path.exists(model_path):
                 logger.error(f"Model file not found: {model_path}")
